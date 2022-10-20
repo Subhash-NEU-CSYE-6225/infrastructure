@@ -1,0 +1,136 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: CSYE 6225 IaC Demo
+Parameters:
+  VpcCidrBlock:
+    Description: "CIDR block for VPC"
+    Type: String
+    Default: "10.0.0.0/16"
+  RouteTableName:
+    Description: An environment name that is prefixed to resource names
+    Type: String
+  Subnet1Name:
+    Description: "Name of first Subnet"
+    Type: String
+    Default: "Subnet1"
+  Subnet2Name:
+    Description: "Name of Second Subnet"
+    Type: String
+    Default: "Subnet2"
+  Subnet3Name:
+    Description: "Name of third Subnet"
+    Type: String
+    Default: "Subnet3"
+  Subnet1CidrBlock:
+    Description: "CidrBlock of first Subnet"
+    Type: String
+    Default: "10.0.0.0/24"
+  Subnet2CidrBlock:
+    Description: "CidrBlock of Second Subnet"
+    Type: String
+    Default: "10.0.0.0/32"
+  Subnet3CidrBlock:
+    Description: "CidrBlock of third Subnet"
+    Type: String
+    Default: "10.0.0.0/40"
+  Subnet1AvailabilityZone:
+    Description: "Availability Zone of first Subnet"
+    Type: String
+    Default: "us-east-1a"
+  Subnet2AvailabilityZone:
+    Description: "Availability Zone of second Subnet"
+    Type: String
+    Default: "us-east-1a"
+  Subnet3AvailabilityZone:
+    Description: "Availability Zone of third Subnet"
+    Type: String
+    Default: "us-east-1a"
+Resources:
+  myVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCidrBlock
+      EnableDnsSupport: 'true'
+      EnableDnsHostnames: 'true'
+      InstanceTenancy: 'default'
+      Tags:
+      - Key: Name
+        Value: !Ref AWS::StackName
+  myInternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+      - Key: Name
+        Value: !Ref AWS::StackName
+  InternetGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      InternetGatewayId: 
+        Ref: myInternetGateway
+      VpcId:
+        Ref: myVPC
+  mySubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId:
+        Ref: myVPC
+      CidrBlock: !Ref Subnet1CidrBlock
+      AvailabilityZone: !Ref Subnet1AvailabilityZone
+      Tags:
+      - Key: Name
+        Value: !Ref Subnet1Name
+  mySubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId:
+        Ref: myVPC
+      CidrBlock: !Ref Subnet2CidrBlock
+      AvailabilityZone: !Ref Subnet2AvailabilityZone
+      Tags:
+      - Key: Name
+        Value: !Ref Subnet2Name
+  mySubnet3:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId:
+        Ref: myVPC
+      CidrBlock: !Ref Subnet3CidrBlock
+      AvailabilityZone: !Ref Subnet3AvailabilityZone
+      Tags:
+      - Key: Name
+        Value: !Ref Subnet3Name
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref myVPC
+      Tags:
+        - Key: Name
+          Value: !Ref RouteTableName
+  mySubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref mySubnet1
+  mySubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref mySubnet2
+  mySubnet3RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref mySubnet3
+  DefaultPublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: InternetGatewayAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref myInternetGateway
+Outputs:
+    VpcId:
+      Description: The VPC ID
+      Value: !Ref myVPC
+    SubnetIds:
+      Description: The Subnet ID
+      Value: !Join [ ",", [ !Ref mySubnet1, !Ref mySubnet2 ]]
