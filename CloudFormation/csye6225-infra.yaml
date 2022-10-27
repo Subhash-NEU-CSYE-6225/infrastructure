@@ -219,6 +219,7 @@ Resources:
       KeyName: !Ref KeyName
       ImageId: !Ref LatestAmiId
       SubnetId: !Ref publicSubnet1
+      IamInstanceProfile: !Ref EC2InstanceProfile
       BlockDeviceMappings:
         - DeviceName: /dev/sdm
           Ebs:
@@ -338,12 +339,9 @@ Resources:
             Action:
               - "sts:AssumeRole"
       Path: /
-      ManagedPolicyArns:
-        - "arn:aws:iam::aws:policy/CloudWatchAgentAdminPolicy"
-  WebAppS3IAMPolicy:
+  WebAppS3EC2IAMPolicy:
     Type: AWS::IAM::Policy
     Properties:
-      PolicyName: WebAppS3
       PolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -352,11 +350,17 @@ Resources:
               - "s3:GetObject"
               - "s3:PutObject"
               - "s3:DeleteObject"
-              - "s3:ListBucket"
-              - "s3:CreateBucket"
             Resource:
-            - !Join ['', ['arn:aws:s3:::',!GetAtt "S3Bucket.Arn"]]
-            - !Join ['', ['arn:aws:s3:::',!GetAtt "S3Bucket.Arn",'/*']]
+              - !GetAtt S3Bucket.Arn
+              - !Sub '${S3Bucket.Arn}/*'
+      PolicyName: "WebAppS3"
+      Roles:
+        - !Ref CodeDeployeEC2ServiceRole
+  EC2InstanceProfile:
+    Type: "AWS::IAM::InstanceProfile"
+    Properties:
+      InstanceProfileName: EC2InstanceProfile
+      Path: "/"
       Roles:
         - !Ref CodeDeployeEC2ServiceRole
 Outputs:
