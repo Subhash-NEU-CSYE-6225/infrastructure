@@ -8,10 +8,11 @@ Parameters:
   RouteTableName:
     Description: An environment name that is prefixed to resource names
     Type: String
+    Default: "Route Table"
   privateRouteTableName:
     Description: An environment name that is prefixed to resource names
     Type: String
-    Default: "privateRouteTableName"
+    Default: "Private Route Table"
   KeyName:
     Description: Name of an existing EC2 KeyPair to enable SSH access to the instance
     Type: AWS::EC2::KeyPair::KeyName
@@ -78,6 +79,24 @@ Parameters:
     Description: "Availability Zone of first public Subnet"
     Type: String
     Default: "us-east-1d"
+  DBName:
+    Type: String
+    Default: "csye6225"
+  DBUsername:
+    Type: String
+    Default: "csye6225"
+  DBPassword:
+    Type: String
+    Default: "ece18670!"
+  DatabaseSecurityGroup:
+    Type: String
+    Default: "database security group"
+  BucketName:
+    Type: String
+    Default: "assets.subhashcsye6225.me"
+  IAMRoleName:
+    Type: String
+    Default: "EC2-CSYE6225"
 Resources:
   myVPC:
     Type: AWS::EC2::VPC
@@ -143,6 +162,13 @@ Resources:
       Tags:
       - Key: Name
         Value: !Ref publicSubnet1Name
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref myVPC
+      Tags:
+        - Key: Name
+          Value: !Ref privateRouteTableName
   PublicRouteTable:
     Type: AWS::EC2::RouteTable
     Properties:
@@ -153,17 +179,17 @@ Resources:
   mySubnet1RouteTableAssociation:
     Type: AWS::EC2::SubnetRouteTableAssociation
     Properties:
-      RouteTableId: !Ref PublicRouteTable
+      RouteTableId: !Ref PrivateRouteTable
       SubnetId: !Ref mySubnet1
   mySubnet2RouteTableAssociation:
     Type: AWS::EC2::SubnetRouteTableAssociation
     Properties:
-      RouteTableId: !Ref PublicRouteTable
+      RouteTableId: !Ref PrivateRouteTable
       SubnetId: !Ref mySubnet2
   mySubnet3RouteTableAssociation:
     Type: AWS::EC2::SubnetRouteTableAssociation
     Properties:
-      RouteTableId: !Ref PublicRouteTable
+      RouteTableId: !Ref PrivateRouteTable
       SubnetId: !Ref mySubnet3
   publicSubnet1RouteTableAssociation:
     Type: AWS::EC2::SubnetRouteTableAssociation
@@ -176,6 +202,13 @@ Resources:
     Properties:
       RouteTableId: !Ref PublicRouteTable
       DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref myInternetGateway
+  PrivateRoute:
+    Type: AWS::EC2::Route
+    DependsOn: InternetGatewayAttachment
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      DestinationCidrBlock: 12.0.1.0/24
       GatewayId: !Ref myInternetGateway
   EC2Instance:
     Type: AWS::EC2::Instance
@@ -192,6 +225,15 @@ Resources:
             VolumeType: gp2
             VolumeSize: '50'
             DeleteOnTermination: true
+      UserData:
+          Fn::Base64: !Sub
+          - |
+            #!/bin/bash
+            echo "{\"AWS_BUCKET_REGION\":\"${AWS::Region}\",\"DB_NAME\":\"${DBName}\",\"DB_PASSWORD\":\"${DBPassword}\",\"DB_USER_NAME\":\"${DBUsername}\",\"DB_ADDRESS\":\"${RDSInstance.Endpoint.Address}\",\"AWS_BUCKET_NAME\":\"${AWS::StackName}.${BucketName}\"}" > /etc/environment.json
+            sudo systemctl enable webapplication.service
+            sudo systemctl start webapplication.service
+          - {
+            }
   ApplicationSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
@@ -214,6 +256,109 @@ Resources:
           FromPort: 8080
           ToPort: 8080
           CidrIp: !Ref 'SSHLocation'
+  DBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: "Ingress Rule to allow port"
+      GroupName: !Ref DatabaseSecurityGroup
+      VpcId: !Ref myVPC
+      SecurityGroupIngress:
+        - SourceSecurityGroupId: !Ref ApplicationSecurityGroup
+          IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+  S3Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Join ["", [!Ref AWS::StackName, ".", !Ref BucketName]]
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: "aws:kms"
+      LifecycleConfiguration:
+        Rules:
+          - Id: Rule for transition of data
+            Status: "Enabled"
+            Transitions:
+              - TransitionInDays: 30
+                StorageClass: STANDARD_IA
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls : true
+        BlockPublicPolicy : true
+        IgnorePublicAcls : true
+        RestrictPublicBuckets : true
+  DBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: "Private subnets group for DB"
+      DBSubnetGroupName: DBSubnetGroup
+      SubnetIds:
+        - Ref: mySubnet1
+        - Ref: mySubnet2
+        - Ref: mySubnet3
+  RDSParameterGroup:
+    Type: AWS::RDS::DBParameterGroup
+    Properties:
+      Description: RDS Parameter group for Postgres
+      Family: postgres13
+      Parameters:
+        rds.force_ssl: 1
+      Tags:
+        - Key: RDSParameterGroup
+          Value: PostgresParameterGroup
+  RDSInstance:
+    Type: AWS::RDS::DBInstance
+    DeletionPolicy: Delete
+    Properties:
+      VPCSecurityGroups:
+        - Ref: DBSecurityGroup
+      Engine: postgres
+      AllocatedStorage: 5
+      DBInstanceClass: db.t3.micro
+      MultiAZ: false
+      DBInstanceIdentifier: !Ref DBName
+      MasterUsername: !Ref DBUsername
+      MasterUserPassword: !Ref DBPassword
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      PubliclyAccessible: false
+      DBName: !Ref DBName
+      DBParameterGroupName: !Ref RDSParameterGroup
+  CodeDeployeEC2ServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Ref IAMRoleName
+      Description: IAM Role of WebApp and S3
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - "sts:AssumeRole"
+      Path: /
+      ManagedPolicyArns:
+        - "arn:aws:iam::aws:policy/CloudWatchAgentAdminPolicy"
+  WebAppS3IAMPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: WebAppS3
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action:
+              - "s3:GetObject"
+              - "s3:PutObject"
+              - "s3:DeleteObject"
+              - "s3:ListBucket"
+              - "s3:CreateBucket"
+            Resource:
+            - !Join ['', ['arn:aws:s3:::',!GetAtt "S3Bucket.Arn"]]
+            - !Join ['', ['arn:aws:s3:::',!GetAtt "S3Bucket.Arn",'/*']]
+      Roles:
+        - !Ref CodeDeployeEC2ServiceRole
 Outputs:
     VpcId:
       Description: The VPC ID
