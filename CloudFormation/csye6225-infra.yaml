@@ -100,7 +100,7 @@ Parameters:
   HostedZoneName:
     Description: "HostedZoneName"
     Type: String
-    Default: "dev.subhashcsye6225.me"
+    Default: "dev.subhashcsye6225.me."
 Resources:
   myVPC:
     Type: AWS::EC2::VPC
