@@ -8,6 +8,10 @@ Parameters:
   RouteTableName:
     Description: An environment name that is prefixed to resource names
     Type: String
+  privateRouteTableName:
+    Description: An environment name that is prefixed to resource names
+    Type: String
+    Default: "privateRouteTableName"
   KeyName:
     Description: Name of an existing EC2 KeyPair to enable SSH access to the instance
     Type: AWS::EC2::KeyPair::KeyName
@@ -74,6 +78,16 @@ Parameters:
     Description: "Availability Zone of first public Subnet"
     Type: String
     Default: "us-east-1d"
+  HostedZoneName:
+    Description: "HostedZoneName"
+    Type: String
+    Default: "dev.subhashcsye6225.me"
+  DatabaseSecurityGroup:
+    Type: String
+    Default: "database security group"
+  BucketName:
+    Type: String
+    Default: "assets.subhashcsye6225.me"
 Resources:
   myVPC:
     Type: AWS::EC2::VPC
@@ -210,6 +224,82 @@ Resources:
           FromPort: 8080
           ToPort: 8080
           CidrIp: !Ref 'SSHLocation'
+  DBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: "Ingress Rule to allow port"
+      GroupName: !Ref DatabaseSecurityGroup
+      VpcId: !Ref myVPC
+      SecurityGroupIngress:
+        - SourceSecurityGroupId: !Ref ApplicationSecurityGroup
+          IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+  S3Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Join ["", [!Ref AWS::StackName, ".", !Ref BucketName]]
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: "aws:kms"
+      LifecycleConfiguration:
+        Rules:
+          - Id: Rule for transition of data
+            Status: "Enabled"
+            Transitions:
+              - TransitionInDays: 30
+                StorageClass: STANDARD_IA
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls : true
+        BlockPublicPolicy : true
+        IgnorePublicAcls : true
+        RestrictPublicBuckets : true
+  DBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: "Private subnets group for DB"
+      DBSubnetGroupName: DBSubnetGroup
+      SubnetIds:
+        - Ref: mySubnet1
+        - Ref: mySubnet2
+        - Ref: mySubnet3
+  RDSParameterGroup:
+    Type: AWS::RDS::DBParameterGroup
+    Properties:
+      Description: RDS Parameter group for Postgres
+      Family: postgres13
+      Parameters:
+        rds.force_ssl: 1
+      Tags:
+        - Key: RDSParameterGroup
+          Value: PostgresParameterGroup
+  RDSInstance:
+    Type: AWS::RDS::DBInstance
+    DeletionPolicy: Delete
+    Properties:
+      VPCSecurityGroups:
+        - Ref: DBSecurityGroup
+      Engine: postgres
+      AllocatedStorage: 5
+      DBInstanceClass: db.t3.micro
+      MultiAZ: false
+      DBInstanceIdentifier: csye6225
+      MasterUsername: csye6225
+      MasterUserPassword: ece18670!
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      PubliclyAccessible: false
+      DBName: csye6225
+      DBParameterGroupName: !Ref RDSParameterGroup
+  Route53Record:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneName: !Ref HostedZoneName
+      Name: !Ref HostedZoneName
+      ResourceRecords:
+        - !GetAtt EC2Instance.PublicIp
+      TTL: 60
+      Type: A
 Outputs:
     VpcId:
       Description: The VPC ID
