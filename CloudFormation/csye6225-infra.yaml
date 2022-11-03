@@ -97,6 +97,10 @@ Parameters:
   IAMRoleName:
     Type: String
     Default: "EC2-CSYE6225"
+  HostedZoneName:
+    Description: "HostedZoneName"
+    Type: String
+    Default: "dev.subhashcsye6225.me"
 Resources:
   myVPC:
     Type: AWS::EC2::VPC
@@ -363,6 +367,15 @@ Resources:
       Path: "/"
       Roles:
         - !Ref CodeDeployeEC2ServiceRole
+  Route53Record:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneName: !Ref HostedZoneName
+      Name: !Ref HostedZoneName
+      ResourceRecords:
+        - !GetAtt EC2Instance.PublicIp
+      TTL: 60
+      Type: A
 Outputs:
     VpcId:
       Description: The VPC ID
