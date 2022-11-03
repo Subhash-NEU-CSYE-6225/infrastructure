@@ -12,24 +12,6 @@ Parameters:
     Description: An environment name that is prefixed to resource names
     Type: String
     Default: "privateRouteTableName"
-  KeyName:
-    Description: Name of an existing EC2 KeyPair to enable SSH access to the instance
-    Type: AWS::EC2::KeyPair::KeyName
-    ConstraintDescription: must be the name of an existing EC2 KeyPair.
-  InstanceType:
-    Description: WebServer EC2 instance type
-    Type: String
-    Default: t2.micro
-    AllowedValues: [t2.micro]
-    ConstraintDescription: must be a valid EC2 instance type
-  SSHLocation:
-    Description: The IP address range that can be used to SSH to the EC2 instances
-    Type: String
-    Default: 0.0.0.0/0
-    ConstraintDescription: must be a valid IP CIDR range of the forn x.x.x.x/x
-  LatestAmiId:
-    Type: 'AWS::EC2::Image::Id'
-    Default: '/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2'
   Subnet1Name:
     Description: "Name of first Subnet"
     Type: String
@@ -78,16 +60,6 @@ Parameters:
     Description: "Availability Zone of first public Subnet"
     Type: String
     Default: "us-east-1d"
-  HostedZoneName:
-    Description: "HostedZoneName"
-    Type: String
-    Default: "dev.subhashcsye6225.me"
-  DatabaseSecurityGroup:
-    Type: String
-    Default: "database security group"
-  BucketName:
-    Type: String
-    Default: "assets.subhashcsye6225.me"
 Resources:
   myVPC:
     Type: AWS::EC2::VPC
@@ -142,17 +114,6 @@ Resources:
       Tags:
       - Key: Name
         Value: !Ref Subnet3Name
-  publicSubnet1:
-    Type: AWS::EC2::Subnet
-    Properties:
-      VpcId:
-        Ref: myVPC
-      CidrBlock: !Ref publicSubnet1CidrBlock
-      AvailabilityZone: !Ref publicSubnet1AvailabilityZone
-      MapPublicIpOnLaunch: true
-      Tags:
-      - Key: Name
-        Value: !Ref publicSubnet1Name
   PublicRouteTable:
     Type: AWS::EC2::RouteTable
     Properties:
@@ -175,11 +136,6 @@ Resources:
     Properties:
       RouteTableId: !Ref PublicRouteTable
       SubnetId: !Ref mySubnet3
-  publicSubnet1RouteTableAssociation:
-    Type: AWS::EC2::SubnetRouteTableAssociation
-    Properties:
-      RouteTableId: !Ref PublicRouteTable
-      SubnetId: !Ref publicSubnet1
   DefaultPublicRoute:
     Type: AWS::EC2::Route
     DependsOn: InternetGatewayAttachment
@@ -187,119 +143,6 @@ Resources:
       RouteTableId: !Ref PublicRouteTable
       DestinationCidrBlock: 0.0.0.0/0
       GatewayId: !Ref myInternetGateway
-  EC2Instance:
-    Type: AWS::EC2::Instance
-    Properties:
-      InstanceType: !Ref InstanceType
-      SecurityGroupIds:
-        - !Ref ApplicationSecurityGroup
-      KeyName: !Ref KeyName
-      ImageId: !Ref LatestAmiId
-      SubnetId: !Ref publicSubnet1
-      BlockDeviceMappings:
-        - DeviceName: /dev/sdm
-          Ebs:
-            VolumeType: gp2
-            VolumeSize: '50'
-            DeleteOnTermination: true
-  ApplicationSecurityGroup:
-    Type: AWS::EC2::SecurityGroup
-    Properties:
-      VpcId: !Ref myVPC
-      GroupDescription: Enable SSH access via port 22 and http access
-      SecurityGroupIngress:
-        - IpProtocol: tcp
-          FromPort: 22
-          ToPort: 22
-          CidrIp: !Ref 'SSHLocation'
-        - IpProtocol: tcp
-          FromPort: 80
-          ToPort: 80
-          CidrIp: !Ref 'SSHLocation'
-        - IpProtocol: tcp
-          FromPort: 443
-          ToPort: 443
-          CidrIp: !Ref 'SSHLocation'
-        - IpProtocol: tcp
-          FromPort: 8080
-          ToPort: 8080
-          CidrIp: !Ref 'SSHLocation'
-  DBSecurityGroup:
-    Type: AWS::EC2::SecurityGroup
-    Properties:
-      GroupDescription: "Ingress Rule to allow port"
-      GroupName: !Ref DatabaseSecurityGroup
-      VpcId: !Ref myVPC
-      SecurityGroupIngress:
-        - SourceSecurityGroupId: !Ref ApplicationSecurityGroup
-          IpProtocol: tcp
-          FromPort: 5432
-          ToPort: 5432
-  S3Bucket:
-    Type: AWS::S3::Bucket
-    Properties:
-      BucketName: !Join ["", [!Ref AWS::StackName, ".", !Ref BucketName]]
-      BucketEncryption:
-        ServerSideEncryptionConfiguration:
-          - ServerSideEncryptionByDefault:
-              SSEAlgorithm: "aws:kms"
-      LifecycleConfiguration:
-        Rules:
-          - Id: Rule for transition of data
-            Status: "Enabled"
-            Transitions:
-              - TransitionInDays: 30
-                StorageClass: STANDARD_IA
-      PublicAccessBlockConfiguration:
-        BlockPublicAcls : true
-        BlockPublicPolicy : true
-        IgnorePublicAcls : true
-        RestrictPublicBuckets : true
-  DBSubnetGroup:
-    Type: AWS::RDS::DBSubnetGroup
-    Properties:
-      DBSubnetGroupDescription: "Private subnets group for DB"
-      DBSubnetGroupName: DBSubnetGroup
-      SubnetIds:
-        - Ref: mySubnet1
-        - Ref: mySubnet2
-        - Ref: mySubnet3
-  RDSParameterGroup:
-    Type: AWS::RDS::DBParameterGroup
-    Properties:
-      Description: RDS Parameter group for Postgres
-      Family: postgres13
-      Parameters:
-        rds.force_ssl: 1
-      Tags:
-        - Key: RDSParameterGroup
-          Value: PostgresParameterGroup
-  RDSInstance:
-    Type: AWS::RDS::DBInstance
-    DeletionPolicy: Delete
-    Properties:
-      VPCSecurityGroups:
-        - Ref: DBSecurityGroup
-      Engine: postgres
-      AllocatedStorage: 5
-      DBInstanceClass: db.t3.micro
-      MultiAZ: false
-      DBInstanceIdentifier: csye6225
-      MasterUsername: csye6225
-      MasterUserPassword: ece18670!
-      DBSubnetGroupName: !Ref DBSubnetGroup
-      PubliclyAccessible: false
-      DBName: csye6225
-      DBParameterGroupName: !Ref RDSParameterGroup
-  Route53Record:
-    Type: AWS::Route53::RecordSet
-    Properties:
-      HostedZoneName: !Ref HostedZoneName
-      Name: !Ref HostedZoneName
-      ResourceRecords:
-        - !GetAtt EC2Instance.PublicIp
-      TTL: 60
-      Type: A
 Outputs:
     VpcId:
       Description: The VPC ID
