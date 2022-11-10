@@ -344,8 +344,8 @@ Resources:
             Action:
               - "sts:AssumeRole"
       Path: /
-    ManagedPolicyArns:
-        - "arn:aws:iam::aws:policy/CloudWatchAgentAdminPolicy"
+      ManagedPolicyArns:
+          - "arn:aws:iam::aws:policy/CloudWatchAgentAdminPolicy"
   WebAppS3EC2IAMPolicy:
     Type: AWS::IAM::Policy
     Properties:
