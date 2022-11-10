@@ -237,6 +237,7 @@ Resources:
             echo "{\"AWS_BUCKET_REGION\":\"${AWS::Region}\",\"DB_NAME\":\"${DBName}\",\"DB_PASSWORD\":\"${DBPassword}\",\"DB_USER_NAME\":\"${DBUsername}\",\"DB_ADDRESS\":\"${RDSInstance.Endpoint.Address}\",\"AWS_BUCKET_NAME\":\"${AWS::StackName}.${BucketName}\"}" > /etc/environment.json
             sudo systemctl enable webapplication.service
             sudo systemctl start webapplication.service
+            sudo /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -c file:/home/ubuntu/AmazonCloudWatch-agent-config.json -s
           - {
             }
   ApplicationSecurityGroup:
@@ -343,6 +344,8 @@ Resources:
             Action:
               - "sts:AssumeRole"
       Path: /
+    ManagedPolicyArns:
+        - "arn:aws:iam::aws:policy/CloudWatchAgentAdminPolicy"
   WebAppS3EC2IAMPolicy:
     Type: AWS::IAM::Policy
     Properties:
