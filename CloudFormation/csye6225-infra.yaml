@@ -101,6 +101,12 @@ Parameters:
     Description: "HostedZoneName"
     Type: String
     Default: "dev.subhashcsye6225.me."
+  envName:
+    Type: String
+    Default: dev
+  LambdaBucketName:
+    Type: String
+    Default: lambabucket.subhashcsye6225.me
 Resources:
   myVPC:
     Type: AWS::EC2::VPC
@@ -234,7 +240,9 @@ Resources:
           Fn::Base64: !Sub
           - |
             #!/bin/bash
-            echo "{\"AWS_BUCKET_REGION\":\"${AWS::Region}\",\"DB_NAME\":\"${DBName}\",\"DB_PASSWORD\":\"${DBPassword}\",\"DB_USER_NAME\":\"${DBUsername}\",\"DB_ADDRESS\":\"${RDSInstance.Endpoint.Address}\",\"AWS_BUCKET_NAME\":\"${AWS::StackName}.${BucketName}\"}" > /etc/environment.json
+            echo "{\"AWS_BUCKET_REGION\":\"${AWS::Region}\",\"DB_NAME\":\"${DBName}\",\"DB_PASSWORD\":\"${DBPassword}\",\"DB_USER_NAME\":\"${DBUsername}\",\"DB_ADDRESS\":\"${RDSInstance.Endpoint.Address}\",\"AWS_BUCKET_NAME\":\"${AWS::StackName}.${BucketName}\",\"ARN\":\"${SNSTopic}\"}" > /etc/environment.json
+            sudo chmod 755 /home/ubuntu/logs
+            sudo chmod 777 /home/ubuntu/logs
             sudo systemctl enable webapplication.service
             sudo systemctl start webapplication.service
             sudo /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -c file:/home/ubuntu/AmazonCloudWatch-agent-config.json -s
@@ -379,6 +387,146 @@ Resources:
         - !GetAtt EC2Instance.PublicIp
       TTL: 60
       Type: A
+  DynamoDBTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: TokenTable
+      BillingMode: PROVISIONED
+      AttributeDefinitions:
+        - AttributeName: username
+          AttributeType: S
+        - AttributeName: token
+          AttributeType: S
+      KeySchema:
+        - AttributeName: username
+          KeyType: HASH
+        - AttributeName: token
+          KeyType: RANGE
+      ProvisionedThroughput:
+        ReadCapacityUnits: 1
+        WriteCapacityUnits: 1 
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+      Tags:
+      - Key: DynamoDBTableName
+        Value: !Sub '${AWS::StackName}-dynamoDB-table'
+  EmailListTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: EmailListTable
+      BillingMode: PROVISIONED
+      AttributeDefinitions:
+        - AttributeName: username
+          AttributeType: S
+      KeySchema:
+        - AttributeName: username
+          KeyType: HASH
+      ProvisionedThroughput:
+        ReadCapacityUnits: 1
+        WriteCapacityUnits: 1 
+      Tags:
+      - Key: DynamoDBTableName
+        Value: !Sub '${AWS::StackName}-EmailListTable'
+  SNSTopic:
+    Type: AWS::SNS::Topic
+    DependsOn:
+      - LambdaFunction
+    Properties:
+      DisplayName: UserVerificationTopic
+      TopicName: UserVerificationTopic
+      Subscription:
+        - Endpoint: !GetAtt LambdaFunction.Arn
+          Protocol: lambda
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-sns-topic'
+  LambdaSNSPermission:
+    Type: AWS::Lambda::Permission
+    DependsOn:
+      - SNSTopic
+    Properties: 
+      Action: lambda:InvokeFunction
+      FunctionName: !GetAtt LambdaFunction.Arn
+      Principal: sns.amazonaws.com
+      SourceAccount: !Ref 'AWS::AccountId'
+      SourceArn: !Ref SNSTopic
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: /
+      RoleName: lambda-execution-role
+      ManagedPolicyArns:
+        - "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+  LambdaPolicy:
+    Type: AWS::IAM::Policy
+    DependsOn:
+      - SNSTopic
+      - DynamoDBTable
+      - EmailListTable
+    Properties:
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action:
+              - "dynamodb:GetItem"
+              - "dynamodb:PutItem"
+              - "dynamodb:UpdateItem"
+            Resource:
+              - !GetAtt DynamoDBTable.Arn
+              - !GetAtt EmailListTable.Arn
+          - Effect: Allow
+            Action:
+              - "ses:SendEmail"
+              - "ses:SendRawEmail"
+            Resource:
+              - !Sub arn:aws:ses:${AWS::Region}:${AWS::AccountId}:identity/${envName}.subhashcsye6225.me
+          - Effect: Allow
+            Action:
+              - "sns:ListTopics"
+              - "sns:CreateTopic"
+              - "sns:GetTopicAttributes"
+              - "sns:Publish"
+              - "sns:ConfirmSubscription"
+            Resource:
+              - !Ref SNSTopic
+      PolicyName: "LambdaPolicy"
+      Roles:
+        - !Ref LambdaExecutionRole
+        - !Ref CodeDeployeEC2ServiceRole
+  LambdaFunction:
+    Type: AWS::Lambda::Function
+    DependsOn:
+      - LambdaExecutionRole
+    Properties:
+      Code:
+        ZipFile: import json
+      Description: Lambda function for verification emails
+      Environment:
+        Variables:
+          DomainName: !Sub ${envName}.subhashcsye6225.me
+      Layers: 
+        - "arn:aws:lambda:us-east-1:540611298233:layer:SendGrid:1"
+      FunctionName: emailVerification
+      Handler: index.emailVerification
+      MemorySize: 128
+      PackageType: Zip
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Runtime: python3.7
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-lambdaFunction
+      Timeout: 15
 Outputs:
     VpcId:
       Description: The VPC ID
