@@ -47,6 +47,14 @@ Parameters:
     Description: "Name of the first public Subnet"
     Type: String
     Default: "publicSubnet1"
+  publicSubnet2Name:
+    Description: "Name of the second public Subnet"
+    Type: String
+    Default: "publicSubnet2"
+  publicSubnet3Name:
+    Description: "Name of the third public Subnet"
+    Type: String
+    Default: "publicSubnet3"
   Subnet1CidrBlock:
     Description: "CidrBlock of first Subnet"
     Type: String
@@ -63,6 +71,14 @@ Parameters:
     Description: "CidrBlock of first public Subnet"
     Type: String
     Default: "10.1.4.0/24"
+  publicSubnet2CidrBlock:
+    Description: "CidrBlock of second public Subnet"
+    Type: String
+    Default: "10.1.5.0/24"
+  publicSubnet3CidrBlock:
+    Description: "CidrBlock of third public Subnet"
+    Type: String
+    Default: "10.1.6.0/24"
   Subnet1AvailabilityZone:
     Description: "Availability Zone of first Subnet"
     Type: String
@@ -79,6 +95,14 @@ Parameters:
     Description: "Availability Zone of first public Subnet"
     Type: String
     Default: "us-east-1d"
+  publicSubnet2AvailabilityZone:
+    Description: "Availability Zone of second public Subnet"
+    Type: String
+    Default: "us-east-1e"
+  publicSubnet3AvailabilityZone:
+    Description: "Availability Zone of third public Subnet"
+    Type: String
+    Default: "us-east-1f"
   DBName:
     Type: String
     Default: "csye6225"
@@ -91,6 +115,12 @@ Parameters:
   DatabaseSecurityGroup:
     Type: String
     Default: "database security group"
+  InstanceVolumeType:
+    Type: String
+    Default: gp2
+  InstanceVolumeSize:
+    Type: String
+    Default: 20
   BucketName:
     Type: String
     Default: "assets.subhashcsye6225.me"
@@ -103,10 +133,20 @@ Parameters:
     Default: "dev.subhashcsye6225.me."
   envName:
     Type: String
-    Default: dev
+    Default: "dev"
+  layerName:
+    Type: String
+    Default: "arn:aws:lambda:us-east-1:540611298233:layer:SendGrid:1"
   LambdaBucketName:
     Type: String
     Default: lambabucket.subhashcsye6225.me
+  SecurtiyGroupName:
+    Type: String
+    Default: "Application Security Group"
+  CertificateArn:
+    Description: SSLCertificateArn 
+    Type: String
+    Default: "arn:aws:acm:us-east-1:540611298233:certificate/9190fcb5-3223-4869-b022-e5c3381514bb"
 Resources:
   myVPC:
     Type: AWS::EC2::VPC
@@ -172,6 +212,28 @@ Resources:
       Tags:
       - Key: Name
         Value: !Ref publicSubnet1Name
+  publicSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId:
+        Ref: myVPC
+      CidrBlock: !Ref publicSubnet2CidrBlock
+      AvailabilityZone: !Ref publicSubnet2AvailabilityZone
+      MapPublicIpOnLaunch: true
+      Tags:
+      - Key: Name
+        Value: !Ref publicSubnet2Name
+  publicSubnet3:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId:
+        Ref: myVPC
+      CidrBlock: !Ref publicSubnet3CidrBlock
+      AvailabilityZone: !Ref publicSubnet3AvailabilityZone
+      MapPublicIpOnLaunch: true
+      Tags:
+      - Key: Name
+        Value: !Ref publicSubnet3Name
   PrivateRouteTable:
     Type: AWS::EC2::RouteTable
     Properties:
@@ -206,6 +268,16 @@ Resources:
     Properties:
       RouteTableId: !Ref PublicRouteTable
       SubnetId: !Ref publicSubnet1
+  publicSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref publicSubnet2
+  publicSubnet3RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref publicSubnet3
   DefaultPublicRoute:
     Type: AWS::EC2::Route
     DependsOn: InternetGatewayAttachment
@@ -220,56 +292,36 @@ Resources:
       RouteTableId: !Ref PrivateRouteTable
       DestinationCidrBlock: 12.0.1.0/24
       GatewayId: !Ref myInternetGateway
-  EC2Instance:
-    Type: AWS::EC2::Instance
-    Properties:
-      InstanceType: !Ref InstanceType
-      SecurityGroupIds:
-        - !Ref ApplicationSecurityGroup
-      KeyName: !Ref KeyName
-      ImageId: !Ref LatestAmiId
-      SubnetId: !Ref publicSubnet1
-      IamInstanceProfile: !Ref EC2InstanceProfile
-      BlockDeviceMappings:
-        - DeviceName: /dev/sdm
-          Ebs:
-            VolumeType: gp2
-            VolumeSize: '50'
-            DeleteOnTermination: true
-      UserData:
-          Fn::Base64: !Sub
-          - |
-            #!/bin/bash
-            echo "{\"AWS_BUCKET_REGION\":\"${AWS::Region}\",\"DB_NAME\":\"${DBName}\",\"DB_PASSWORD\":\"${DBPassword}\",\"DB_USER_NAME\":\"${DBUsername}\",\"DB_ADDRESS\":\"${RDSInstance.Endpoint.Address}\",\"AWS_BUCKET_NAME\":\"${AWS::StackName}.${BucketName}\",\"ARN\":\"${SNSTopic}\"}" > /etc/environment.json
-            sudo chmod 755 /home/ubuntu/logs
-            sudo chmod 777 /home/ubuntu/logs
-            sudo systemctl enable webapplication.service
-            sudo systemctl start webapplication.service
-            sudo /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -c file:/home/ubuntu/AmazonCloudWatch-agent-config.json -s
-          - {
-            }
-  ApplicationSecurityGroup:
+  LoadBalancerSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
+      GroupDescription: "Ingress Rule for LB to allow ports"
+      GroupName: loadBalancerSecurityGroup
       VpcId: !Ref myVPC
-      GroupDescription: Enable SSH access via port 22 and http access
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: '80'
+          ToPort: '80'
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: '443'
+          ToPort: '443'
+          CidrIp: 0.0.0.0/0
+  InstanceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: "Ingress Rule to allow ports"
+      GroupName: !Ref SecurtiyGroupName
+      VpcId: !Ref myVPC
       SecurityGroupIngress:
         - IpProtocol: tcp
           FromPort: 22
           ToPort: 22
-          CidrIp: !Ref 'SSHLocation'
-        - IpProtocol: tcp
-          FromPort: 80
-          ToPort: 80
-          CidrIp: !Ref 'SSHLocation'
-        - IpProtocol: tcp
-          FromPort: 443
-          ToPort: 443
-          CidrIp: !Ref 'SSHLocation'
+          SourceSecurityGroupId: !Ref LoadBalancerSecurityGroup
         - IpProtocol: tcp
           FromPort: 8080
           ToPort: 8080
-          CidrIp: !Ref 'SSHLocation'
+          SourceSecurityGroupId: !Ref LoadBalancerSecurityGroup
   DBSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
@@ -277,10 +329,184 @@ Resources:
       GroupName: !Ref DatabaseSecurityGroup
       VpcId: !Ref myVPC
       SecurityGroupIngress:
-        - SourceSecurityGroupId: !Ref ApplicationSecurityGroup
+        - SourceSecurityGroupId: !Ref InstanceSecurityGroup
           IpProtocol: tcp
           FromPort: 5432
           ToPort: 5432
+  ASGLaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateName: !Sub "${AWS::StackName}-launch-template"
+      LaunchTemplateData:
+        BlockDeviceMappings:
+          - DeviceName: /dev/sdm
+            Ebs:
+              VolumeSize: !Ref InstanceVolumeSize
+              VolumeType: !Ref InstanceVolumeType
+              DeleteOnTermination: true
+              Encrypted: true
+              KmsKeyId: !GetAtt EbsSecretKey.Arn
+        InstanceType: "t2.micro"
+        KeyName: !Ref KeyName
+        ImageId: !Ref LatestAmiId
+        SecurityGroupIds:
+          - !Ref InstanceSecurityGroup
+        IamInstanceProfile:
+          Name: EC2InstanceProfile
+        UserData:
+          Fn::Base64: !Sub |
+            #!/bin/bash
+            echo "{\"AWS_BUCKET_REGION\":\"${AWS::Region}\",\"DB_NAME\":\"${DBName}\",\"DB_PASSWORD\":\"${DBPassword}\",\"DB_USER_NAME\":\"${DBUsername}\",\"DB_ADDRESS\":\"${RDSInstance.Endpoint.Address}\",\"AWS_BUCKET_NAME\":\"${AWS::StackName}.${BucketName}\",\"ARN\":\"${SNSTopic}\"}" > /etc/environment.json
+            sudo chmod 755 /home/ubuntu/logs
+            sudo chmod 777 /home/ubuntu/logs
+            sudo systemctl enable webapplication.service
+            sudo systemctl start webapplication.service
+            sudo /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -c file:/home/ubuntu/AmazonCloudWatch-agent-config.json -s
+  ASGWebApp:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    DependsOn:
+      - RDSInstance
+      - InstanceSecurityGroup
+    Properties:
+      AutoScalingGroupName: !Sub ${AWS::StackName}-ASG
+      AvailabilityZones:
+        - !Ref publicSubnet1AvailabilityZone
+        - !Ref publicSubnet2AvailabilityZone
+        - !Ref publicSubnet3AvailabilityZone
+      Cooldown: "60"
+      HealthCheckGracePeriod: 90
+      HealthCheckType: EC2
+      LaunchTemplate:
+        LaunchTemplateId: !Ref ASGLaunchTemplate
+        Version: !GetAtt ASGLaunchTemplate.LatestVersionNumber
+      MaxSize: "3"
+      MinSize: "1"
+      DesiredCapacity: "1"
+      NewInstancesProtectedFromScaleIn: false
+      Tags:
+        - Key: Application
+          Value: WebApp
+          PropagateAtLaunch: "true"
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-ASG
+          PropagateAtLaunch: "true"
+      TargetGroupARNs:
+        - !Ref loadBalancerTargetGroup
+      VPCZoneIdentifier:
+        - !Ref publicSubnet1
+        - !Ref publicSubnet2
+        - !Ref publicSubnet3
+  ASGCPUScaleUpPolicy:
+    Type: AWS::AutoScaling::ScalingPolicy
+    Properties:
+      AutoScalingGroupName: !Ref ASGWebApp
+      AdjustmentType: ChangeInCapacity
+      ScalingAdjustment: "1"
+  AVGCPUOver5:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: "AVG CPU Utilization is above 5%"
+      EvaluationPeriods: 1
+      MetricName: CPUUtilization
+      Namespace: AWS/EC2
+      Period: 60
+      Statistic: Average
+      ComparisonOperator: GreaterThanThreshold
+      Threshold: 5.0
+      AlarmActions:
+        - !Ref ASGCPUScaleUpPolicy
+      Dimensions:
+        - Name: AutoScalingGroupName
+          Value: !Ref ASGWebApp
+  ASGCPUScaleDownPolicy:
+    Type: AWS::AutoScaling::ScalingPolicy
+    Properties:
+      AutoScalingGroupName: !Ref ASGWebApp
+      AdjustmentType: ChangeInCapacity
+      ScalingAdjustment: "-1"
+  AVGCPUBelow3:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: "AVG CPU Utilization below 3%"
+      EvaluationPeriods: 1
+      MetricName: CPUUtilization
+      Namespace: AWS/EC2
+      Period: 60
+      Statistic: Average
+      ComparisonOperator: LessThanThreshold
+      Threshold: 3.0
+      AlarmActions:
+        - !Ref ASGCPUScaleDownPolicy
+      Dimensions:
+        - Name: AutoScalingGroupName
+          Value: !Ref ASGWebApp
+  loadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    DependsOn:
+      - ASGWebApp
+      - LoadBalancerSecurityGroup
+    Properties:
+      IpAddressType: ipv4
+      LoadBalancerAttributes:
+        - Key: idle_timeout.timeout_seconds
+          Value: "60"
+      Name: !Sub ${AWS::StackName}-load-balancer
+      Scheme: internet-facing
+      SecurityGroups:
+        - !Ref LoadBalancerSecurityGroup
+      Subnets:
+        - !Ref publicSubnet1
+        - !Ref publicSubnet2
+        - !Ref publicSubnet3
+      Tags:
+        - Key: Application
+          Value: WebApp
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-load-balancer
+      Type: application
+  loadBalancerTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      HealthCheckIntervalSeconds: 90
+      HealthCheckPath: "/healthz"
+      HealthCheckPort: "8080"
+      HealthCheckProtocol: "HTTP"
+      HealthCheckTimeoutSeconds: 60
+      HealthyThresholdCount: 2
+      IpAddressType: ipv4
+      Name: !Sub ${AWS::StackName}-lb-targetGroup
+      Port: 8080
+      Protocol: "HTTP"
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-lb-tg
+      TargetGroupAttributes:
+        - Key: deregistration_delay.timeout_seconds
+          Value: "20"
+      TargetType: instance
+      UnhealthyThresholdCount: 2
+      VpcId: !Ref myVPC
+  loadBalancerListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref loadBalancerTargetGroup
+      LoadBalancerArn: !Ref loadBalancer
+      Port: 443
+      Protocol: HTTPS
+      Certificates: 
+      - CertificateArn: !Ref CertificateArn
+  DNSConfig:
+    Type: AWS::Route53::RecordSetGroup
+    Properties:
+      HostedZoneName: !Ref HostedZoneName
+      RecordSets:
+        - Name: !Ref HostedZoneName
+          Type: A
+          AliasTarget:
+            HostedZoneId: !GetAtt "loadBalancer.CanonicalHostedZoneID"
+            DNSName: !GetAtt "loadBalancer.DNSName"
   S3Bucket:
     Type: AWS::S3::Bucket
     Properties:
@@ -337,6 +563,75 @@ Resources:
       PubliclyAccessible: false
       DBName: !Ref DBName
       DBParameterGroupName: !Ref RDSParameterGroup
+  RDSSecretKey:
+    Type: AWS::KMS::Key
+    Properties: 
+      Description: Symmetric KMS key
+      Enabled: true
+      EnableKeyRotation: true
+      PendingWindowInDays: 7
+      KeyPolicy:
+        Version: 2012-10-17
+        Id: rds-key
+        Statement:
+          - Sid: Enable IAM User Permissions
+            Effect: Allow
+            Principal:
+              AWS: !Sub 'arn:aws:iam::${AWS::AccountId}:root'
+            Action: 'kms:*'
+            Resource: '*'
+  rdsKeyAlias:
+    Type: AWS::KMS::Alias
+    Properties:
+      AliasName: alias/rds
+      TargetKeyId:
+        Ref: RDSSecretKey
+  EbsSecretKey:
+    Type: AWS::KMS::Key
+    Properties: 
+      Description: Symmetric KMS key
+      Enabled: true
+      EnableKeyRotation: true
+      PendingWindowInDays: 7
+      KeyPolicy:
+        Version: 2012-10-17
+        Id: ebs-key
+        Statement:
+          - Sid: Enable IAM User Permissions
+            Effect: Allow
+            Principal:
+              AWS: !Sub 'arn:aws:iam::${AWS::AccountId}:root'
+            Action: 'kms:*'
+            Resource: '*'
+          - Sid: Allow use of the key by the default service linked role
+            Effect: Allow
+            Principal:
+              AWS:
+              - !Sub arn:aws:iam::${AWS::AccountId}:role/aws-service-role/autoscaling.amazonaws.com/AWSServiceRoleForAutoScaling
+            Action:
+            - kms:Encrypt
+            - kms:Decrypt
+            - kms:ReEncrypt*
+            - kms:GenerateDataKey*
+            - kms:DescribeKey
+            Resource: "*"
+          - Sid: Allow attachment of persistent resources
+            Effect: Allow
+            Principal:
+              AWS:
+              - !Sub arn:aws:iam::${AWS::AccountId}:role/aws-service-role/autoscaling.amazonaws.com/AWSServiceRoleForAutoScaling
+            Action:
+            - kms:CreateGrant
+            Resource: "*"
+            Condition:
+              Bool:
+                kms:GrantIsForAWSResource: true
+  ebsKeyAlias:
+      Type: AWS::KMS::Alias
+      Properties:
+        AliasName: alias/ebs
+        TargetKeyId:
+          Ref: EbsSecretKey
   CodeDeployeEC2ServiceRole:
     Type: AWS::IAM::Role
     Properties:
@@ -378,15 +673,6 @@ Resources:
       Path: "/"
       Roles:
         - !Ref CodeDeployeEC2ServiceRole
-  Route53Record:
-    Type: AWS::Route53::RecordSet
-    Properties:
-      HostedZoneName: !Ref HostedZoneName
-      Name: !Ref HostedZoneName
-      ResourceRecords:
-        - !GetAtt EC2Instance.PublicIp
-      TTL: 60
-      Type: A
   DynamoDBTable:
     Type: AWS::DynamoDB::Table
     Properties:
@@ -516,7 +802,7 @@ Resources:
         Variables:
           DomainName: !Sub ${envName}.subhashcsye6225.me
       Layers: 
-        - "arn:aws:lambda:us-east-1:540611298233:layer:SendGrid:1"
+        - !Ref layerName
       FunctionName: emailVerification
       Handler: index.emailVerification
       MemorySize: 128
